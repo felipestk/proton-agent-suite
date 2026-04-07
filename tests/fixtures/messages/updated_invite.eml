@@ -1,0 +1,35 @@
+From: alice@example.com
+To: bob@example.com
+Subject: Demo Meeting Updated
+Date: Tue, 07 Apr 2026 10:00:00 +0000
+Message-ID: <demo.meeting.updated@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="BOUNDARY"
+
+--BOUNDARY
+Content-Type: text/plain; charset="utf-8"
+
+Demo Meeting Updated body
+
+--BOUNDARY
+Content-Type: text/calendar; charset="utf-8"; method=REQUEST; name="invite.ics"
+Content-Disposition: attachment; filename="invite.ics"
+
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Example Corp//Meeting//EN
+METHOD:REQUEST
+BEGIN:VEVENT
+UID:invite-1@example.com
+DTSTAMP:20260402T100000Z
+DTSTART:20260410T100000Z
+DTEND:20260410T110000Z
+SUMMARY:Demo Meeting Updated
+ORGANIZER:mailto:alice@example.com
+ATTENDEE;CN=Bob;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:bob@example.com
+SEQUENCE:2
+STATUS:CONFIRMED
+END:VEVENT
+END:VCALENDAR
+
+--BOUNDARY--

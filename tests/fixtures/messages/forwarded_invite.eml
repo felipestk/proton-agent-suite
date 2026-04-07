@@ -1,0 +1,35 @@
+From: charlie@example.net
+To: bob@example.com
+Subject: Fwd: Fwd Demo Meeting
+Date: Tue, 07 Apr 2026 10:00:00 +0000
+Message-ID: <fwd.demo.meeting@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="BOUNDARY"
+
+--BOUNDARY
+Content-Type: text/plain; charset="utf-8"
+
+Fwd Demo Meeting body
+
+--BOUNDARY
+Content-Type: text/calendar; charset="utf-8"; method=REQUEST; name="invite.ics"
+Content-Disposition: attachment; filename="invite.ics"
+
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Example Corp//Meeting//EN
+METHOD:REQUEST
+BEGIN:VEVENT
+UID:forward-1@example.com
+DTSTAMP:20260404T100000Z
+DTSTART:20260412T090000Z
+DTEND:20260412T100000Z
+SUMMARY:Fwd Demo Meeting
+ORGANIZER:mailto:alice@example.com
+ATTENDEE;CN=Bob;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:bob@example.com
+SEQUENCE:0
+STATUS:CONFIRMED
+END:VEVENT
+END:VCALENDAR
+
+--BOUNDARY--
