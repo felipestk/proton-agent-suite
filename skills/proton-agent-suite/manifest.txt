@@ -1,0 +1,10 @@
+SKILL.md
+manifest.txt
+tasks/setup_and_validation.md
+tasks/mail_workflows.md
+tasks/invites.md
+tasks/calendar_and_connector.md
+tasks/sync_and_agent_polling.md
+tasks/deployment_and_security.md
+troubleshooting/common.md
+examples/smoke_test.md
