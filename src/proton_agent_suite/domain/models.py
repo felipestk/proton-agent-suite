@@ -17,6 +17,7 @@ class FolderInfo(BaseModel):
     ref: str
     name: str
     kind: MailboxKind = MailboxKind.FOLDER
+    remote_name: str | None = None
 
 
 class AttachmentInfo(BaseModel):

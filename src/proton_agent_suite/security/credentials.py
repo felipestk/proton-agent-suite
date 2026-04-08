@@ -47,6 +47,7 @@ class EnvironmentCredentialStore:
                 credentials_dir,
             ),
             label_prefix=os.getenv("PROTON_AGENT_BRIDGE_LABEL_PREFIX", "Labels"),
+            folder_prefix=os.getenv("PROTON_AGENT_BRIDGE_FOLDER_PREFIX", "Folders"),
             allow_insecure_localhost=os.getenv("PROTON_AGENT_BRIDGE_ALLOW_INSECURE_LOCALHOST", "true").lower() == "true",
         )
         radicale = RadicaleSettings(

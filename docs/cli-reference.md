@@ -46,6 +46,14 @@
 - `proton-agent mail sent --limit 20`
 - `proton-agent mail sent-record SENT_REF`
 
+### Folder namespace behavior
+
+- Pass custom folders as logical names such as `Clients/Felipe`.
+- The Bridge provider normalizes them to remote IMAP mailbox paths under `Folders/...`.
+- Passing `Folders/Clients/Felipe` is also accepted and is not double-prefixed.
+- System folders such as `Inbox`, `Sent`, `Archive`, `Drafts`, `Trash`, and `Spam` are left unchanged.
+- `mail folders` returns logical `name` and remote `remote_name` fields in JSON output.
+
 ## Invites
 
 - `proton-agent invites scan`
@@ -94,6 +102,12 @@ For `calendar` and `invites` commands, repeat `--attendee` for each participant.
 
 - `mail send`, `mail reply`, `mail send-draft`, and invite workflows return a local `sent_ref`.
 - `mail sent-record SENT_REF` returns the stored `message_id`, recipients, related invite metadata, and send timestamp.
+
+## Existing-install SQLite upgrades
+
+- Startup runs explicit SQLite migrations before the session factory is created.
+- Existing DBs are upgraded in place with missing invite, event, attendee, and outbound-mail columns plus new tables and indexes.
+- Migration failures are surfaced as CLI errors and are not silently ignored.
 
 ## Sync
 

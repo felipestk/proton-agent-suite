@@ -13,20 +13,27 @@ class FoldersRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def upsert(self, name: str, kind: MailboxKind = MailboxKind.FOLDER) -> FolderRow:
-        row = self.session.scalar(select(FolderRow).where(FolderRow.remote_name == name))
+    def upsert(
+        self,
+        remote_name: str,
+        kind: MailboxKind = MailboxKind.FOLDER,
+        *,
+        display_name: str | None = None,
+    ) -> FolderRow:
+        row = self.session.scalar(select(FolderRow).where(FolderRow.remote_name == remote_name))
+        resolved_display_name = display_name or remote_name
         if row is None:
             row = FolderRow(
-                id=stable_ref("fld", name),
-                remote_name=name,
-                display_name=name,
+                id=stable_ref("fld", remote_name),
+                remote_name=remote_name,
+                display_name=resolved_display_name,
                 kind=kind.value,
             )
             self.session.add(row)
             self.session.flush()
             return row
         row.kind = kind.value
-        row.display_name = name
+        row.display_name = resolved_display_name
         return row
 
     def list_all(self) -> list[FolderRow]:
@@ -38,10 +45,10 @@ class FoldersRepository:
             raise make_error(ErrorCode.MAIL_FOLDER_NOT_FOUND, "Folder not found", {"folder": name})
         return row
 
-    def rename(self, old_name: str, new_name: str) -> FolderRow:
+    def rename(self, old_name: str, new_name: str, *, display_name: str | None = None) -> FolderRow:
         row = self.get(old_name)
         row.remote_name = new_name
-        row.display_name = new_name
+        row.display_name = display_name or new_name
         self.session.flush()
         return row
 

@@ -17,10 +17,71 @@ from proton_agent_suite.utils.time import ensure_utc
 
 
 class BridgeMailProvider:
+    _SYSTEM_FOLDERS = {
+        "all mail",
+        "archive",
+        "drafts",
+        "important",
+        "inbox",
+        "junk",
+        "sent",
+        "sent mail",
+        "spam",
+        "starred",
+        "trash",
+    }
+
     def __init__(self, settings: BridgeSettings) -> None:
         self.settings = settings
         self._parser = MessageParser()
         self._smtp = BridgeSmtpClient(settings)
+
+    def _is_label_mailbox(self, name: str) -> bool:
+        return name == self.settings.label_prefix or name.startswith(f"{self.settings.label_prefix}/")
+
+    def _is_custom_folder_mailbox(self, name: str) -> bool:
+        return name == self.settings.folder_prefix or name.startswith(f"{self.settings.folder_prefix}/")
+
+    def _is_system_mailbox(self, name: str) -> bool:
+        return name.lower() in self._SYSTEM_FOLDERS
+
+    def _normalize_folder_name(self, name: str) -> str:
+        value = name.strip()
+        if not value:
+            return value
+        if self._is_label_mailbox(value) or self._is_custom_folder_mailbox(value) or self._is_system_mailbox(value):
+            return value
+        return f"{self.settings.folder_prefix}/{value}"
+
+    def _logical_folder_name(self, remote_name: str) -> str:
+        prefix = f"{self.settings.folder_prefix}/"
+        if remote_name.startswith(prefix):
+            return remote_name[len(prefix) :]
+        return remote_name
+
+    def _logical_label_name(self, remote_name: str) -> str:
+        prefix = f"{self.settings.label_prefix}/"
+        if remote_name.startswith(prefix):
+            return remote_name[len(prefix) :]
+        return remote_name
+
+    def normalize_folder_name(self, name: str) -> str:
+        return self._normalize_folder_name(name)
+
+    def _folder_info(self, remote_name: str) -> FolderInfo:
+        if self._is_label_mailbox(remote_name):
+            return FolderInfo(
+                ref=stable_ref("fld", remote_name),
+                name=self._logical_label_name(remote_name),
+                remote_name=remote_name,
+                kind=MailboxKind.LABEL,
+            )
+        return FolderInfo(
+            ref=stable_ref("fld", remote_name),
+            name=self._logical_folder_name(remote_name),
+            remote_name=remote_name,
+            kind=MailboxKind.FOLDER,
+        )
 
     def _connect(self) -> IMAPClient:
         try:
@@ -79,26 +140,19 @@ class BridgeMailProvider:
     def list_folders(self) -> list[FolderInfo]:
         with self._connect() as client:
             folders = client.list_folders()
-        results: list[FolderInfo] = []
-        for _flags, _delimiter, name in folders:
-            kind = (
-                MailboxKind.LABEL
-                if name.startswith(f"{self.settings.label_prefix}/")
-                or name == self.settings.label_prefix
-                else MailboxKind.FOLDER
-            )
-            results.append(FolderInfo(ref=stable_ref("fld", name), name=name, kind=kind))
+        results = [self._folder_info(name) for _flags, _delimiter, name in folders]
         return sorted(results, key=lambda item: item.name.lower())
 
     def sync_folder(self, folder: str, since: datetime) -> list[MessageDetail]:
+        remote_folder = self._normalize_folder_name(folder)
         with self._connect() as client:
             try:
-                client.select_folder(folder, readonly=True)
+                client.select_folder(remote_folder, readonly=True)
             except imaplib.IMAP4.error as exc:
                 raise make_error(
                     ErrorCode.MAIL_FOLDER_NOT_FOUND,
                     "Folder not found",
-                    {"folder": folder},
+                    {"folder": folder, "remote_folder": remote_folder},
                 ) from exc
             uids = client.search(["SINCE", since.date()])
             if not uids:
@@ -145,8 +199,9 @@ class BridgeMailProvider:
         raise make_error(ErrorCode.MESSAGE_NOT_FOUND, "Message not found", {"folder": folder, "uid": uid})
 
     def fetch_raw_message(self, folder: str, uid: int) -> bytes:
+        remote_folder = self._normalize_folder_name(folder)
         with self._connect() as client:
-            client.select_folder(folder, readonly=True)
+            client.select_folder(remote_folder, readonly=True)
             fetch_data = client.fetch([uid], [b"RFC822"])
             raw = fetch_data.get(uid, {}).get(b"RFC822")
             if raw is None:
@@ -157,22 +212,26 @@ class BridgeMailProvider:
         return self._smtp.send_message(request)
 
     def mark_read(self, folder: str, uid: int) -> None:
+        remote_folder = self._normalize_folder_name(folder)
         with self._connect() as client:
-            client.select_folder(folder)
+            client.select_folder(remote_folder)
             client.add_flags([uid], [b"\\Seen"])
 
     def mark_unread(self, folder: str, uid: int) -> None:
+        remote_folder = self._normalize_folder_name(folder)
         with self._connect() as client:
-            client.select_folder(folder)
+            client.select_folder(remote_folder)
             client.remove_flags([uid], [b"\\Seen"])
 
     def move_message(self, source_folder: str, uid: int, target_folder: str) -> None:
+        remote_source = self._normalize_folder_name(source_folder)
+        remote_target = self._normalize_folder_name(target_folder)
         with self._connect() as client:
-            client.select_folder(source_folder)
+            client.select_folder(remote_source)
             try:
-                client.move([uid], target_folder)
+                client.move([uid], remote_target)
             except Exception:
-                client.copy([uid], target_folder)
+                client.copy([uid], remote_target)
                 client.delete_messages([uid])
                 client.expunge()
 
@@ -181,13 +240,13 @@ class BridgeMailProvider:
 
     def list_labels(self) -> list[str]:
         labels = [folder.name for folder in self.list_folders() if folder.kind == MailboxKind.LABEL]
-        prefix = f"{self.settings.label_prefix}/"
-        return [label[len(prefix) :] if label.startswith(prefix) else label for label in labels]
+        return labels
 
     def add_label(self, source_folder: str, uid: int, label_name: str) -> None:
         target = f"{self.settings.label_prefix}/{label_name}"
+        remote_source = self._normalize_folder_name(source_folder)
         with self._connect() as client:
-            client.select_folder(source_folder)
+            client.select_folder(remote_source)
             client.copy([uid], target)
 
     def remove_label(self, message_id_header: str, label_name: str) -> None:
@@ -205,36 +264,46 @@ class BridgeMailProvider:
             client.expunge()
 
     def create_folder(self, name: str) -> FolderInfo:
+        remote_name = self._normalize_folder_name(name)
         with self._connect() as client:
             try:
-                client.create_folder(name)
+                client.create_folder(remote_name)
             except imaplib.IMAP4.error as exc:
                 raise make_error(
                     ErrorCode.VALIDATION_ERROR,
                     "Failed to create folder",
-                    {"folder": name, "reason": str(exc)},
+                    {"folder": name, "remote_folder": remote_name, "reason": str(exc)},
                 ) from exc
-        return FolderInfo(ref=stable_ref("fld", name), name=name, kind=MailboxKind.FOLDER)
+        return self._folder_info(remote_name)
 
     def rename_folder(self, old_name: str, new_name: str) -> FolderInfo:
+        remote_old_name = self._normalize_folder_name(old_name)
+        remote_new_name = self._normalize_folder_name(new_name)
         with self._connect() as client:
             try:
-                client.rename_folder(old_name, new_name)
+                client.rename_folder(remote_old_name, remote_new_name)
             except imaplib.IMAP4.error as exc:
                 raise make_error(
                     ErrorCode.VALIDATION_ERROR,
                     "Failed to rename folder",
-                    {"from": old_name, "to": new_name, "reason": str(exc)},
+                    {
+                        "from": old_name,
+                        "to": new_name,
+                        "remote_from": remote_old_name,
+                        "remote_to": remote_new_name,
+                        "reason": str(exc),
+                    },
                 ) from exc
-        return FolderInfo(ref=stable_ref("fld", new_name), name=new_name, kind=MailboxKind.FOLDER)
+        return self._folder_info(remote_new_name)
 
     def delete_folder(self, name: str) -> None:
+        remote_name = self._normalize_folder_name(name)
         with self._connect() as client:
             try:
-                client.delete_folder(name)
+                client.delete_folder(remote_name)
             except imaplib.IMAP4.error as exc:
                 raise make_error(
                     ErrorCode.VALIDATION_ERROR,
                     "Failed to delete folder",
-                    {"folder": name, "reason": str(exc)},
+                    {"folder": name, "remote_folder": remote_name, "reason": str(exc)},
                 ) from exc

@@ -91,6 +91,7 @@ Important variables:
 - `PROTON_AGENT_BRIDGE_SMTP_PORT`
 - `PROTON_AGENT_BRIDGE_USERNAME`
 - `PROTON_AGENT_BRIDGE_PASSWORD`
+- `PROTON_AGENT_BRIDGE_FOLDER_PREFIX` (defaults to `Folders`)
 - `PROTON_AGENT_RADICALE_BASE_URL`
 - `PROTON_AGENT_RADICALE_USERNAME`
 - `PROTON_AGENT_RADICALE_PASSWORD`
@@ -122,6 +123,8 @@ proton-agent sync mail --since 30d
 proton-agent sync invites
 proton-agent sync calendar --days 30
 ```
+
+Existing installs are upgraded in place on startup. The CLI now runs explicit SQLite schema migrations before opening a session, so an existing DB such as `/var/lib/proton-agent/proton-agent.sqlite3` is updated with newly required columns, tables, and indexes instead of relying on `create_all()` alone.
 
 ## Example commands
 
@@ -189,6 +192,14 @@ proton-agent mail rename-folder --from "Clients/Felipe" --to "Clients/Felipe-202
 proton-agent mail delete-folder --name "Clients/Felipe-2026"
 ```
 
+With Proton Mail Bridge, custom folders are user-facing logical names but remote IMAP mailboxes live under `Folders/...`. The suite now normalizes:
+
+- `Clients/Felipe` -> `Folders/Clients/Felipe`
+- `Folders/Clients/Felipe` -> unchanged
+- system folders like `Inbox`, `Sent`, `Archive`, `Drafts`, `Trash`, and `Spam` -> unchanged
+
+`mail folders` returns the logical `name` plus the underlying `remote_name` so JSON callers can see both.
+
 Show Apple Calendar connector info:
 
 ```bash
@@ -249,7 +260,9 @@ Live end-to-end coverage against a real Bridge or Radicale server is intentional
 
 ## Known limitations
 
+- SQLite migrations are additive and repo-local. They safely handle current schema evolution for existing installs, but they are not a general-purpose migration framework for arbitrary historical forks.
 - Proton labels are modeled via Bridge mailbox semantics, not arbitrary remote metadata.
+- Proton Bridge custom folders depend on the configured namespace prefix and default to `Folders`. Renaming or deleting Bridge system folders is still not supported.
 - RSVP mail generation is conservative and refuses unsafe forwarded/untrusted invites unless `--force` is used.
 - Invite cancel defaults are optimized for Apple Calendar and Gmail compatibility: send `METHOD:CANCEL`, then delete the organizer-side CalDAV object. Use `--keep-local-event` only if you explicitly want a canceled local placeholder.
 - The suite does not automate Proton Calendar.

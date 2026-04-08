@@ -12,6 +12,11 @@ class FakeMailProvider:
         self.deleted: list[str] = []
         self.sent: list[MailSendRequest] = []
 
+    def normalize_folder_name(self, name: str) -> str:
+        if name.startswith("Folders/") or name in {"Inbox", "Sent", "Archive", "Drafts", "Trash", "Spam"}:
+            return name
+        return f"Folders/{name}"
+
     def send_message(self, request: MailSendRequest) -> dict[str, str]:
         self.sent.append(request)
         return {
@@ -21,15 +26,18 @@ class FakeMailProvider:
         }
 
     def create_folder(self, name: str) -> FolderInfo:
-        self.created.append(name)
-        return FolderInfo(ref=f"fld_{name}", name=name)
+        remote_name = self.normalize_folder_name(name)
+        self.created.append(remote_name)
+        return FolderInfo(ref=f"fld_{remote_name}", name=name, remote_name=remote_name)
 
     def rename_folder(self, old_name: str, new_name: str) -> FolderInfo:
-        self.renamed.append((old_name, new_name))
-        return FolderInfo(ref=f"fld_{new_name}", name=new_name)
+        remote_old_name = self.normalize_folder_name(old_name)
+        remote_new_name = self.normalize_folder_name(new_name)
+        self.renamed.append((remote_old_name, remote_new_name))
+        return FolderInfo(ref=f"fld_{remote_new_name}", name=new_name, remote_name=remote_new_name)
 
     def delete_folder(self, name: str) -> None:
-        self.deleted.append(name)
+        self.deleted.append(self.normalize_folder_name(name))
 
 
 def test_mail_send_records_outbound_message(session_factory):
@@ -53,8 +61,11 @@ def test_mail_folder_lifecycle_updates_provider_and_db(session_factory):
     deleted = service.delete_folder("Clients/Felipe-2026")
 
     assert created["name"] == "Clients/Felipe"
+    assert created["remote_name"] == "Folders/Clients/Felipe"
     assert renamed["name"] == "Clients/Felipe-2026"
+    assert renamed["remote_name"] == "Folders/Clients/Felipe-2026"
+    assert deleted["remote_name"] == "Folders/Clients/Felipe-2026"
     assert deleted["status"] == "deleted"
-    assert provider.created == ["Clients/Felipe"]
-    assert provider.renamed == [("Clients/Felipe", "Clients/Felipe-2026")]
-    assert provider.deleted == ["Clients/Felipe-2026"]
+    assert provider.created == ["Folders/Clients/Felipe"]
+    assert provider.renamed == [("Folders/Clients/Felipe", "Folders/Clients/Felipe-2026")]
+    assert provider.deleted == ["Folders/Clients/Felipe-2026"]

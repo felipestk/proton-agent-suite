@@ -30,6 +30,7 @@ Mail adapter:
 - `providers/bridge_mail/client.py`
 - Bridge IMAP only for retrieval and mailbox operations
 - Bridge SMTP only for sending
+- custom folder normalization lives here so services and CLI commands share the same `Folders/...` namespace behavior
 
 Calendar adapter:
 
@@ -50,7 +51,7 @@ Invite workflow:
 `storage/` contains:
 
 - SQLAlchemy schema
-- migration bootstrap
+- explicit SQLite migration runner
 - repository classes per aggregate/table area
 
 SQLite stores normalized data and source linkage, but not secrets.
@@ -61,6 +62,15 @@ Important persisted state now includes:
 - invite lifecycle records keyed by `UID + organizer + recurrence-id + sequence`
 - latest invite instance linkage
 - outbound mail records with `sent_ref`, `message_id`, recipients, related invite UID, and method
+
+Migration behavior:
+
+- startup runs repo-local SQLite migrations before ORM sessions are created
+- migrations inspect live tables with `PRAGMA table_info(...)`
+- missing columns are added with targeted `ALTER TABLE ... ADD COLUMN ...`
+- missing tables come from the SQLAlchemy metadata
+- invite latest-state rows are backfilled into `invite_instances`
+- indexes are created idempotently with `IF NOT EXISTS`
 
 ### CLI
 

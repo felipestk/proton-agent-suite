@@ -13,6 +13,7 @@ class BridgeSettings(BaseModel):
     username: str | None = None
     password: str | None = None
     label_prefix: str = "Labels"
+    folder_prefix: str = "Folders"
     allow_insecure_localhost: bool = True
 
 

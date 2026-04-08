@@ -138,9 +138,32 @@ Symptoms:
 
 Checks:
 
-- make sure the requested mailbox path is valid for Proton Mail Bridge IMAP
+- pass custom folders as logical names like `Clients/Felipe`; the suite maps them to `Folders/Clients/Felipe`
+- `Folders/...` is accepted directly and is not double-prefixed
+- system folders such as `Inbox`, `Sent`, `Archive`, `Drafts`, `Trash`, and `Spam` are intentionally not prefixed
 - avoid renaming or deleting special system folders
-- verify the folder name exactly matches the remote IMAP mailbox when renaming or deleting
+- if you need the exact Bridge mailbox path, inspect `mail folders` and use the returned `remote_name`
+
+## Existing DB upgrade failures
+
+Symptoms:
+
+- `SQLITE_UNAVAILABLE` during startup
+- `sqlite3.OperationalError: no such column: events.description`
+- invite create/update/cancel failing immediately after upgrading the code
+
+Checks:
+
+- confirm the service is opening the expected DB path, for example `/var/lib/proton-agent/proton-agent.sqlite3`
+- restart the CLI or service so startup migrations run against that DB
+- inspect free disk space and filesystem permissions for the DB directory
+- if migration fails, read the surfaced error details and fix that DB-level problem first instead of continuing with partial state
+
+Current behavior:
+
+- startup now runs explicit, idempotent SQLite migrations
+- existing installs are upgraded in place with missing columns, tables, and indexes
+- migration failures are fatal by design and are not silently skipped
 
 ## Sent message correlation looks incomplete
 

@@ -24,7 +24,7 @@ class FakeImapClient:
         return [b"IMAP4rev1"]
 
     def list_folders(self):
-        return [((), "/", "Inbox"), ((), "/", "Labels/Work")]
+        return [((), "/", "Inbox"), ((), "/", "Folders/Clients/Felipe"), ((), "/", "Labels/Work")]
 
     def select_folder(self, name, readonly=False):
         self.selected = name
@@ -51,8 +51,10 @@ def test_list_folders_maps_labels(monkeypatch):
     provider = BridgeMailProvider(BridgeSettings(username="u", password="p"))
     monkeypatch.setattr(provider, "_connect", lambda: FakeImapClient())
     folders = provider.list_folders()
-    assert folders[0].name == "Inbox"
-    assert folders[1].kind == MailboxKind.LABEL
+    assert folders[0].name == "Clients/Felipe"
+    assert folders[0].remote_name == "Folders/Clients/Felipe"
+    assert folders[1].name == "Inbox"
+    assert folders[2].kind == MailboxKind.LABEL
     assert provider.list_labels() == ["Work"]
 
 
@@ -75,6 +77,15 @@ def test_folder_lifecycle_calls_imap_methods(monkeypatch):
     provider.rename_folder("Clients/Felipe", "Clients/Felipe-2026")
     provider.delete_folder("Clients/Felipe-2026")
 
-    assert fake.created == ["Clients/Felipe"]
-    assert fake.renamed == [("Clients/Felipe", "Clients/Felipe-2026")]
-    assert fake.deleted == ["Clients/Felipe-2026"]
+    assert fake.created == ["Folders/Clients/Felipe"]
+    assert fake.renamed == [("Folders/Clients/Felipe", "Folders/Clients/Felipe-2026")]
+    assert fake.deleted == ["Folders/Clients/Felipe-2026"]
+
+
+def test_folder_normalization_is_deterministic():
+    provider = BridgeMailProvider(BridgeSettings(username="u", password="p"))
+
+    assert provider.normalize_folder_name("Clients/Felipe") == "Folders/Clients/Felipe"
+    assert provider.normalize_folder_name("Folders/Clients/Felipe") == "Folders/Clients/Felipe"
+    assert provider.normalize_folder_name("Inbox") == "Inbox"
+    assert provider.normalize_folder_name("Sent") == "Sent"

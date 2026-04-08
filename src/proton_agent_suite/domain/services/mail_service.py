@@ -37,7 +37,7 @@ class MailService:
         with self.session_factory() as session:
             repo = FoldersRepository(session)
             for folder in folders:
-                repo.upsert(folder.name, folder.kind)
+                repo.upsert(folder.remote_name or folder.name, folder.kind, display_name=folder.name)
             session.commit()
         return folders
 
@@ -298,30 +298,33 @@ class MailService:
     def create_folder(self, name: str) -> dict[str, object]:
         folder = self.provider.create_folder(name)
         with self.session_factory() as session:
-            FoldersRepository(session).upsert(folder.name, folder.kind)
+            FoldersRepository(session).upsert(folder.remote_name or folder.name, folder.kind, display_name=folder.name)
             session.commit()
         return folder.model_dump(mode="json")
 
     def rename_folder(self, old_name: str, new_name: str) -> dict[str, object]:
+        old_remote_name = self.provider.normalize_folder_name(old_name)
         folder = self.provider.rename_folder(old_name, new_name)
+        new_remote_name = folder.remote_name or self.provider.normalize_folder_name(new_name)
         with self.session_factory() as session:
             repo = FoldersRepository(session)
             try:
-                repo.rename(old_name, new_name)
+                repo.rename(old_remote_name, new_remote_name, display_name=folder.name)
             except ProtonAgentError:
-                repo.upsert(new_name, folder.kind)
+                repo.upsert(new_remote_name, folder.kind, display_name=folder.name)
             session.commit()
         return folder.model_dump(mode="json")
 
     def delete_folder(self, name: str) -> dict[str, object]:
+        remote_name = self.provider.normalize_folder_name(name)
         self.provider.delete_folder(name)
         with self.session_factory() as session:
             try:
-                FoldersRepository(session).delete(name)
+                FoldersRepository(session).delete(remote_name)
             except ProtonAgentError:
                 pass
             session.commit()
-        return {"name": name, "status": "deleted"}
+        return {"name": name, "remote_name": remote_name, "status": "deleted"}
 
     def list_outbound(self, limit: int = 50) -> list[OutboundMessageInfo]:
         with self.session_factory() as session:
