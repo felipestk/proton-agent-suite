@@ -10,6 +10,9 @@ from proton_agent_suite.domain.value_objects import BridgeSettings
 class FakeImapClient:
     def __init__(self):
         self.selected = None
+        self.created: list[str] = []
+        self.renamed: list[tuple[str, str]] = []
+        self.deleted: list[str] = []
 
     def __enter__(self):
         return self
@@ -28,6 +31,15 @@ class FakeImapClient:
 
     def search(self, criteria):
         return []
+
+    def create_folder(self, name):
+        self.created.append(name)
+
+    def rename_folder(self, old_name, new_name):
+        self.renamed.append((old_name, new_name))
+
+    def delete_folder(self, name):
+        self.deleted.append(name)
 
 
 class BrokenBridgeProvider(BridgeMailProvider):
@@ -52,3 +64,17 @@ def test_bridge_health_maps_connection_refused():
         assert getattr(exc, "code").value in {ErrorCode.BRIDGE_NOT_RUNNING.value, ErrorCode.BRIDGE_SMTP_UNAVAILABLE.value}
     else:  # pragma: no cover
         raise AssertionError("expected bridge health error")
+
+
+def test_folder_lifecycle_calls_imap_methods(monkeypatch):
+    provider = BridgeMailProvider(BridgeSettings(username="u", password="p"))
+    fake = FakeImapClient()
+    monkeypatch.setattr(provider, "_connect", lambda: fake)
+
+    provider.create_folder("Clients/Felipe")
+    provider.rename_folder("Clients/Felipe", "Clients/Felipe-2026")
+    provider.delete_folder("Clients/Felipe-2026")
+
+    assert fake.created == ["Clients/Felipe"]
+    assert fake.renamed == [("Clients/Felipe", "Clients/Felipe-2026")]
+    assert fake.deleted == ["Clients/Felipe-2026"]

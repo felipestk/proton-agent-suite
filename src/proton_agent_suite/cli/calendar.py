@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from proton_agent_suite.domain.models import EventAttendee
 import typer
 
 from proton_agent_suite.cli.app import emit, fail, get_ctx
@@ -15,6 +16,31 @@ def _require_yes(context: typer.Context, yes: bool) -> None:
     if yes or ctx.interactive:
         return
     fail(ctx, make_error(ErrorCode.VALIDATION_ERROR, "This action requires --yes", {"required": "--yes"}))
+
+
+def _parse_attendees(values: list[str]) -> list[EventAttendee]:
+    attendees: list[EventAttendee] = []
+    for value in values:
+        parts = [part.strip() for part in value.split("|") if part.strip()]
+        if not parts:
+            continue
+        email = parts[0]
+        fields: dict[str, object] = {"email": email}
+        for item in parts[1:]:
+            if "=" not in item:
+                continue
+            key, raw_value = item.split("=", 1)
+            normalized = key.strip().lower()
+            if normalized == "cn":
+                fields["common_name"] = raw_value.strip()
+            elif normalized == "role":
+                fields["role"] = raw_value.strip()
+            elif normalized == "partstat":
+                fields["partstat"] = raw_value.strip()
+            elif normalized == "rsvp":
+                fields["rsvp"] = raw_value.strip().lower() in {"1", "true", "yes"}
+        attendees.append(EventAttendee.model_validate(fields))
+    return attendees
 
 
 @app.command("health")
@@ -111,8 +137,12 @@ def create(
     title: str = typer.Option(..., "--title"),
     start: str = typer.Option(..., "--start"),
     end: str = typer.Option(..., "--end"),
+    timezone: str | None = typer.Option(None, "--timezone"),
     description: str | None = typer.Option(None, "--description"),
     location: str | None = typer.Option(None, "--location"),
+    organizer: str | None = typer.Option(None, "--organizer"),
+    organizer_cn: str | None = typer.Option(None, "--organizer-cn"),
+    attendee: list[str] = typer.Option([], "--attendee"),
 ) -> None:
     ctx = get_ctx(context)
     try:
@@ -123,8 +153,12 @@ def create(
                 title=title,
                 start=parse_timestamp(start),
                 end=parse_timestamp(end),
+                timezone_name=timezone,
                 description=description,
                 location=location,
+                organizer=organizer,
+                organizer_common_name=organizer_cn,
+                attendees=_parse_attendees(attendee),
             ),
         )
     except ProtonAgentError as error:
@@ -138,8 +172,12 @@ def update(
     title: str | None = typer.Option(None, "--title"),
     start: str | None = typer.Option(None, "--start"),
     end: str | None = typer.Option(None, "--end"),
+    timezone: str | None = typer.Option(None, "--timezone"),
     description: str | None = typer.Option(None, "--description"),
     location: str | None = typer.Option(None, "--location"),
+    organizer: str | None = typer.Option(None, "--organizer"),
+    organizer_cn: str | None = typer.Option(None, "--organizer-cn"),
+    attendee: list[str] = typer.Option([], "--attendee"),
 ) -> None:
     ctx = get_ctx(context)
     try:
@@ -150,8 +188,12 @@ def update(
                 title=title,
                 start=parse_timestamp(start) if start else None,
                 end=parse_timestamp(end) if end else None,
+                timezone_name=timezone,
                 description=description,
                 location=location,
+                organizer=organizer,
+                organizer_common_name=organizer_cn,
+                attendees=_parse_attendees(attendee) if attendee else None,
             ),
         )
     except ProtonAgentError as error:

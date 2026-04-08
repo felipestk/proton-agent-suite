@@ -5,13 +5,22 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from proton_agent_suite.domain.models import AttachmentInfo, FolderInfo, HealthCheckResult, MessageDetail, MessageSummary
+from proton_agent_suite.domain.errors import ProtonAgentError
+from proton_agent_suite.domain.models import (
+    AttachmentInfo,
+    FolderInfo,
+    HealthCheckResult,
+    MessageDetail,
+    MessageSummary,
+    OutboundMessageInfo,
+)
 from proton_agent_suite.domain.protocols import MailProvider
-from proton_agent_suite.domain.value_objects import MailSendRequest
+from proton_agent_suite.domain.value_objects import MailAttachment, MailSendRequest
 from proton_agent_suite.providers.bridge_mail.mapper import MailMapper
 from proton_agent_suite.storage.repositories.attachments import AttachmentsRepository
 from proton_agent_suite.storage.repositories.folders import FoldersRepository
 from proton_agent_suite.storage.repositories.messages import MessagesRepository
+from proton_agent_suite.storage.repositories.outbound_mail import OutboundMailRepository
 from proton_agent_suite.utils.fs import ensure_parent_dir
 
 
@@ -84,8 +93,40 @@ class MailService:
             rows = MessagesRepository(session).search(query, limit=limit)
             return [MailMapper.summary_from_row(row) for row in rows]
 
-    def send(self, request: MailSendRequest) -> dict[str, str]:
-        return self.provider.send_message(request)
+    def send(
+        self,
+        request: MailSendRequest,
+        *,
+        source_message_ref: str | None = None,
+        related_invite_uid: str | None = None,
+        invite_sequence: int | None = None,
+        method: str | None = None,
+    ) -> dict[str, object]:
+        with self.session_factory() as session:
+            repo = OutboundMailRepository(session)
+            row = repo.create(
+                subject=request.subject,
+                to_addresses=request.to_addresses,
+                cc_addresses=request.cc_addresses,
+                bcc_addresses=request.bcc_addresses,
+                source_message_ref=source_message_ref,
+                related_invite_uid=related_invite_uid,
+                invite_sequence=invite_sequence,
+                method=method,
+            )
+            result = self.provider.send_message(request)
+            row = repo.mark_sent(
+                row.id,
+                message_id=str(result.get("message_id")) if result.get("message_id") else None,
+                response_json=result,
+            )
+            session.commit()
+            return {
+                "status": row.status,
+                "sent_ref": row.id,
+                "message_id": row.message_id_header,
+                "sent_at": row.sent_at,
+            }
 
     def create_draft(
         self,
@@ -140,26 +181,40 @@ class MailService:
                     bcc_addresses=[value for value in row.bcc_addresses.split("\n") if value],
                     subject=row.subject,
                     body_text=row.body_text,
-                )
+                ),
             )
             repo.mark_sent(draft_ref)
             session.commit()
             return {"ref": row.id, **result}
 
-    def reply(self, message_ref: str, body_text: str) -> dict[str, str]:
+    def reply(
+        self,
+        message_ref: str,
+        body_text: str,
+        *,
+        reply_all: bool = False,
+        attachments: list[MailAttachment] | None = None,
+    ) -> dict[str, object]:
         with self.session_factory() as session:
             message = MessagesRepository(session).get(message_ref)
             recipients = [message.from_address] if message.from_address else []
+            cc_addresses = [value for value in message.cc_addresses.split("\n") if value] if reply_all else []
+            if reply_all:
+                for address in [value for value in message.to_addresses.split("\n") if value]:
+                    if address and address not in recipients:
+                        recipients.append(address)
             subject = message.subject or ""
             prefixed = subject if subject.lower().startswith("re:") else f"Re: {subject}"
             request = MailSendRequest(
                 to_addresses=recipients,
+                cc_addresses=cc_addresses,
                 subject=prefixed,
                 body_text=body_text,
                 in_reply_to=message.message_id_header,
                 references=[message.message_id_header] if message.message_id_header else [],
+                attachments=attachments or [],
             )
-        return self.provider.send_message(request)
+        return self.send(request, source_message_ref=message_ref)
 
     def attachments(self, message_ref: str) -> list[AttachmentInfo]:
         with self.session_factory() as session:
@@ -239,3 +294,57 @@ class MailService:
             repo.remove_label(message_ref, label_name)
             session.commit()
             return {"ref": message_ref, "label": label_name}
+
+    def create_folder(self, name: str) -> dict[str, object]:
+        folder = self.provider.create_folder(name)
+        with self.session_factory() as session:
+            FoldersRepository(session).upsert(folder.name, folder.kind)
+            session.commit()
+        return folder.model_dump(mode="json")
+
+    def rename_folder(self, old_name: str, new_name: str) -> dict[str, object]:
+        folder = self.provider.rename_folder(old_name, new_name)
+        with self.session_factory() as session:
+            repo = FoldersRepository(session)
+            try:
+                repo.rename(old_name, new_name)
+            except ProtonAgentError:
+                repo.upsert(new_name, folder.kind)
+            session.commit()
+        return folder.model_dump(mode="json")
+
+    def delete_folder(self, name: str) -> dict[str, object]:
+        self.provider.delete_folder(name)
+        with self.session_factory() as session:
+            try:
+                FoldersRepository(session).delete(name)
+            except ProtonAgentError:
+                pass
+            session.commit()
+        return {"name": name, "status": "deleted"}
+
+    def list_outbound(self, limit: int = 50) -> list[OutboundMessageInfo]:
+        with self.session_factory() as session:
+            rows = OutboundMailRepository(session).list_recent(limit=limit)
+            return [self._outbound_view(row) for row in rows]
+
+    def get_outbound(self, outbound_ref: str) -> OutboundMessageInfo:
+        with self.session_factory() as session:
+            row = OutboundMailRepository(session).get(outbound_ref)
+            return self._outbound_view(row)
+
+    def _outbound_view(self, row: object) -> OutboundMessageInfo:
+        return OutboundMessageInfo(
+            ref=row.id,
+            status=row.status,
+            message_id=row.message_id_header,
+            subject=row.subject,
+            to_addresses=[value for value in row.to_addresses.split("\n") if value],
+            cc_addresses=[value for value in row.cc_addresses.split("\n") if value],
+            bcc_addresses=[value for value in row.bcc_addresses.split("\n") if value],
+            source_message_ref=row.source_message_ref,
+            related_invite_uid=row.related_invite_uid,
+            invite_sequence=row.invite_sequence,
+            method=row.method,
+            sent_at=row.sent_at,
+        )

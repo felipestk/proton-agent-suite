@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from proton_agent_suite.domain.models import CalendarInfo, ConnectorInfo, EventInfo, HealthCheckResult
+from proton_agent_suite.domain.models import CalendarInfo, ConnectorInfo, EventAttendee, EventInfo, HealthCheckResult
 from proton_agent_suite.domain.protocols import CalendarProvider
 from proton_agent_suite.storage.repositories.calendars import CalendarsRepository
 from proton_agent_suite.storage.repositories.events import EventsRepository
@@ -58,13 +58,71 @@ class CalendarService:
             row = EventsRepository(session).get(event_ref)
             return self._event_from_row(row)
 
-    def create(self, *, calendar_ref: str, title: str, start: datetime, end: datetime, timezone_name: str | None = None, description: str | None = None, location: str | None = None) -> EventInfo:
-        event = self.provider.create_event(calendar_ref=calendar_ref, title=title, start=start, end=end, timezone_name=timezone_name, description=description, location=location)
+    def create(
+        self,
+        *,
+        calendar_ref: str,
+        title: str,
+        start: datetime,
+        end: datetime,
+        timezone_name: str | None = None,
+        description: str | None = None,
+        location: str | None = None,
+        organizer: str | None = None,
+        organizer_common_name: str | None = None,
+        attendees: list[EventAttendee] | None = None,
+        status: str = "CONFIRMED",
+        sequence: int = 0,
+        uid: str | None = None,
+    ) -> EventInfo:
+        event = self.provider.create_event(
+            calendar_ref=calendar_ref,
+            title=title,
+            start=start,
+            end=end,
+            timezone_name=timezone_name,
+            description=description,
+            location=location,
+            organizer=organizer,
+            organizer_common_name=organizer_common_name,
+            attendees=attendees,
+            status=status,
+            sequence=sequence,
+            uid=uid,
+        )
         self._persist_events([event])
         return event
 
-    def update(self, event_ref: str, *, title: str | None = None, start: datetime | None = None, end: datetime | None = None, description: str | None = None, location: str | None = None) -> EventInfo:
-        event = self.provider.update_event(event_ref, title=title, start=start, end=end, description=description, location=location)
+    def update(
+        self,
+        event_ref: str,
+        *,
+        title: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        timezone_name: str | None = None,
+        description: str | None = None,
+        location: str | None = None,
+        organizer: str | None = None,
+        organizer_common_name: str | None = None,
+        attendees: list[EventAttendee] | None = None,
+        status: str | None = None,
+        sequence: int | None = None,
+    ) -> EventInfo:
+        event = self.provider.update_event(
+            event_ref,
+            title=title,
+            start=start,
+            end=end,
+            timezone_name=timezone_name,
+            description=description,
+            location=location,
+            organizer=organizer,
+            organizer_common_name=organizer_common_name,
+            attendees=attendees,
+            status=status,
+            sequence=sequence,
+        )
         self._persist_events([event])
         return event
 
@@ -103,15 +161,18 @@ class CalendarService:
                     href=event.href,
                     etag=event.etag,
                     title=event.title,
+                    description=event.description,
+                    location=event.location,
                     start_utc=event.start_utc,
                     end_utc=event.end_utc,
                     timezone_name=event.timezone_name,
-                    status=event.status.value if hasattr(event.status, 'value') else str(event.status),
+                    status=event.status.value if hasattr(event.status, "value") else str(event.status),
                     sequence=event.sequence,
                     organizer=event.organizer,
+                    organizer_common_name=event.organizer_common_name,
                     recurrence_id=event.recurrence_id,
                     raw_ics=None,
-                    attendees=event.attendees,
+                    attendees=[attendee.model_dump(mode="python") for attendee in event.attendees],
                 )
             session.commit()
 
@@ -123,21 +184,24 @@ class CalendarService:
             href=row.href,
             etag=row.etag,
             title=row.title,
+            description=row.description,
+            location=row.location,
             start_utc=row.start_utc,
             end_utc=row.end_utc,
             timezone_name=row.timezone_name,
             status=row.status,
             sequence=row.sequence,
             organizer=row.organizer,
+            organizer_common_name=row.organizer_common_name,
             recurrence_id=row.recurrence_id,
             attendees=[
-                {
-                    "email": attendee.email,
-                    "common_name": attendee.common_name,
-                    "partstat": attendee.partstat,
-                    "role": attendee.role,
-                    "rsvp": attendee.rsvp,
-                }
+                EventAttendee(
+                    email=attendee.email,
+                    common_name=attendee.common_name,
+                    partstat=attendee.partstat,
+                    role=attendee.role,
+                    rsvp=attendee.rsvp,
+                )
                 for attendee in row.attendees
             ],
             updated_at=row.updated_at,

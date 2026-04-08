@@ -112,6 +112,49 @@ If duplicates still look confusing:
 - inspect `invites source INVITE_REF`
 - compare organizer and recurrence identifiers
 
+## Invite update or cancel behaves oddly in Apple Calendar or Gmail
+
+Checks:
+
+- confirm the workflow used `proton-agent invites update` or `proton-agent invites cancel`, not a manual calendar edit plus plain email
+- confirm the same UID is being reused
+- confirm each organizer-side change increments `SEQUENCE`
+- confirm cancellations are being sent as `METHOD:CANCEL`
+
+Important default:
+
+- `invites cancel` sends the cancel mail first and then deletes the organizer-side CalDAV object
+- this is deliberate to reduce ghost events and duplicate cancellation artifacts in Apple Calendar and Gmail
+
+If you intentionally used `--keep-local-event`, expect more client-specific variation.
+
+## Folder lifecycle failures
+
+Symptoms:
+
+- `VALIDATION_ERROR` from `mail create-folder`
+- `VALIDATION_ERROR` from `mail rename-folder`
+- `VALIDATION_ERROR` from `mail delete-folder`
+
+Checks:
+
+- make sure the requested mailbox path is valid for Proton Mail Bridge IMAP
+- avoid renaming or deleting special system folders
+- verify the folder name exactly matches the remote IMAP mailbox when renaming or deleting
+
+## Sent message correlation looks incomplete
+
+Checks:
+
+- use `mail sent` or `mail sent-record SENT_REF`
+- confirm Bridge SMTP returned a `message_id`
+- remember that the suite stores outbound correlation locally even before the sent copy is re-synced from IMAP
+
+Current behavior:
+
+- direct `mail send`, `mail reply`, `mail send-draft`, and organizer invite workflows persist a local outbound record
+- attachment support is strongest on direct send and reply flows
+
 ## Browser automation is intentionally not used
 
 This version does **not** use selector automation or browser automation for Proton Calendar. That is deliberate, not a missing troubleshooting step.

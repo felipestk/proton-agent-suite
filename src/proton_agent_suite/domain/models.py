@@ -61,14 +61,24 @@ class InviteRecordView(BaseModel):
     ref: str
     uid: str
     organizer: str | None = None
+    organizer_common_name: str | None = None
     recurrence_id: str | None = None
     sequence: int = 0
     method: str | None = None
     status: InviteStatus = InviteStatus.PENDING
     summary: str | None = None
+    description: str | None = None
+    location: str | None = None
     start_utc: datetime | None = None
     end_utc: datetime | None = None
+    timezone_name: str | None = None
+    attendees: list["EventAttendee"] = Field(default_factory=list)
+    calendar_ref: str | None = None
+    calendar_href: str | None = None
+    calendar_etag: str | None = None
     source_message_ref: str | None = None
+    outbound_mail_ref: str | None = None
+    outbound_message_id: str | None = None
     warning_flags: list[str] = Field(default_factory=list)
     reason_codes: list[str] = Field(default_factory=list)
     latest: bool = False
@@ -91,15 +101,41 @@ class EventInfo(BaseModel):
     href: str | None = None
     etag: str | None = None
     title: str
+    description: str | None = None
+    location: str | None = None
     start_utc: datetime
     end_utc: datetime
     timezone_name: str | None = None
     status: EventStatus = EventStatus.CONFIRMED
     sequence: int = 0
     organizer: str | None = None
+    organizer_common_name: str | None = None
     recurrence_id: str | None = None
-    attendees: list[dict[str, Any]] = Field(default_factory=list)
+    attendees: list["EventAttendee"] = Field(default_factory=list)
     updated_at: datetime | None = None
+
+
+class EventAttendee(BaseModel):
+    email: str
+    common_name: str | None = None
+    partstat: str | None = None
+    role: str | None = None
+    rsvp: bool | None = None
+
+
+class OutboundMessageInfo(BaseModel):
+    ref: str
+    status: str
+    message_id: str | None = None
+    subject: str | None = None
+    to_addresses: list[str] = Field(default_factory=list)
+    cc_addresses: list[str] = Field(default_factory=list)
+    bcc_addresses: list[str] = Field(default_factory=list)
+    source_message_ref: str | None = None
+    related_invite_uid: str | None = None
+    invite_sequence: int | None = None
+    method: str | None = None
+    sent_at: datetime | None = None
 
 
 class ConnectorInfo(BaseModel):

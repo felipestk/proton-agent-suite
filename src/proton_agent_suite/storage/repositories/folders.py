@@ -3,7 +3,8 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from proton_agent_suite.domain.enums import MailboxKind
+from proton_agent_suite.domain.enums import ErrorCode, MailboxKind
+from proton_agent_suite.domain.errors import make_error
 from proton_agent_suite.storage.schema import FolderRow
 from proton_agent_suite.utils.ids import stable_ref
 
@@ -30,3 +31,21 @@ class FoldersRepository:
 
     def list_all(self) -> list[FolderRow]:
         return list(self.session.scalars(select(FolderRow).order_by(FolderRow.display_name.asc())))
+
+    def get(self, name: str) -> FolderRow:
+        row = self.session.scalar(select(FolderRow).where(FolderRow.remote_name == name))
+        if row is None:
+            raise make_error(ErrorCode.MAIL_FOLDER_NOT_FOUND, "Folder not found", {"folder": name})
+        return row
+
+    def rename(self, old_name: str, new_name: str) -> FolderRow:
+        row = self.get(old_name)
+        row.remote_name = new_name
+        row.display_name = new_name
+        self.session.flush()
+        return row
+
+    def delete(self, name: str) -> None:
+        row = self.get(name)
+        self.session.delete(row)
+        self.session.flush()

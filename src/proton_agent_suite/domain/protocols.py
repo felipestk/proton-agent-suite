@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
 from datetime import datetime
-from pathlib import Path
 from typing import Protocol
 
 from proton_agent_suite.domain.models import (
     CalendarInfo,
     ConnectorInfo,
+    EventAttendee,
     EventInfo,
     FolderInfo,
     HealthCheckResult,
@@ -36,6 +35,9 @@ class MailProvider(Protocol):
     def list_labels(self) -> list[str]: ...
     def add_label(self, source_folder: str, uid: int, label_name: str) -> None: ...
     def remove_label(self, message_id_header: str, label_name: str) -> None: ...
+    def create_folder(self, name: str) -> FolderInfo: ...
+    def rename_folder(self, old_name: str, new_name: str) -> FolderInfo: ...
+    def delete_folder(self, name: str) -> None: ...
 
 
 class CalendarProvider(Protocol):
@@ -56,6 +58,12 @@ class CalendarProvider(Protocol):
         timezone_name: str | None = None,
         description: str | None = None,
         location: str | None = None,
+        organizer: str | None = None,
+        organizer_common_name: str | None = None,
+        attendees: list[EventAttendee] | None = None,
+        status: str = "CONFIRMED",
+        sequence: int = 0,
+        uid: str | None = None,
     ) -> EventInfo: ...
     def update_event(
         self,
@@ -64,8 +72,14 @@ class CalendarProvider(Protocol):
         title: str | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
+        timezone_name: str | None = None,
         description: str | None = None,
         location: str | None = None,
+        organizer: str | None = None,
+        organizer_common_name: str | None = None,
+        attendees: list[EventAttendee] | None = None,
+        status: str | None = None,
+        sequence: int | None = None,
     ) -> EventInfo: ...
     def cancel_event(self, event_ref: str) -> EventInfo: ...
     def delete_event(self, event_ref: str) -> None: ...

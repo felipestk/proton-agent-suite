@@ -20,15 +20,24 @@ class InvitesRepository:
         *,
         uid: str,
         organizer: str | None,
+        organizer_common_name: str | None,
         recurrence_id: str | None,
         sequence: int,
         method: str | None,
         status: str,
         summary: str | None,
+        description: str | None,
+        location: str | None,
         start_utc: datetime | None,
         end_utc: datetime | None,
         timezone_name: str | None,
+        attendees: list[dict[str, object]],
+        calendar_ref: str | None,
+        calendar_href: str | None,
+        calendar_etag: str | None,
         source_message_ref: str | None,
+        outbound_mail_ref: str | None,
+        outbound_message_id: str | None,
         warning_flags: list[str],
         reason_codes: list[str],
         raw_ics: str | None,
@@ -46,6 +55,7 @@ class InvitesRepository:
                 id=stable_ref("inv", uid, organizer or "", recurrence_id or "", sequence),
                 uid=uid,
                 organizer=organizer,
+                organizer_common_name=organizer_common_name,
                 recurrence_id=recurrence_id,
                 sequence=sequence,
             )
@@ -53,10 +63,18 @@ class InvitesRepository:
         row.method = method
         row.status = status
         row.summary = summary
+        row.description = description
+        row.location = location
         row.start_utc = start_utc
         row.end_utc = end_utc
         row.timezone_name = timezone_name
+        row.attendees = attendees
+        row.calendar_ref = calendar_ref
+        row.calendar_href = calendar_href
+        row.calendar_etag = calendar_etag
         row.source_message_ref = source_message_ref
+        row.outbound_mail_ref = outbound_mail_ref
+        row.outbound_message_id = outbound_message_id
         row.warning_flags = warning_flags
         row.reason_codes = reason_codes
         row.raw_ics = raw_ics
@@ -92,6 +110,9 @@ class InvitesRepository:
                 current_status=latest.status,
                 start_utc=latest.start_utc,
                 end_utc=latest.end_utc,
+                calendar_ref=latest.calendar_ref,
+                calendar_href=latest.calendar_href,
+                calendar_etag=latest.calendar_etag,
             )
             self.session.add(instance)
         else:
@@ -99,6 +120,9 @@ class InvitesRepository:
             instance.current_status = latest.status
             instance.start_utc = latest.start_utc
             instance.end_utc = latest.end_utc
+            instance.calendar_ref = latest.calendar_ref
+            instance.calendar_href = latest.calendar_href
+            instance.calendar_etag = latest.calendar_etag
         self.session.flush()
         return row
 
@@ -121,3 +145,11 @@ class InvitesRepository:
     def changed_since(self, since: datetime) -> list[InviteRecordRow]:
         stmt = select(InviteRecordRow).where(InviteRecordRow.updated_at >= since).order_by(InviteRecordRow.updated_at.asc())
         return list(self.session.scalars(stmt))
+
+    def get_latest_for_uid(self, uid: str) -> InviteRecordRow:
+        row = self.session.scalar(
+            select(InviteRecordRow).where(InviteRecordRow.uid == uid, InviteRecordRow.latest.is_(True))
+        )
+        if row is None:
+            raise make_error(ErrorCode.INVITE_NOT_FOUND, "Invite not found", {"uid": uid})
+        return row

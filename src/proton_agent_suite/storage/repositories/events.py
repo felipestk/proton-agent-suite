@@ -23,12 +23,15 @@ class EventsRepository:
         href: str | None,
         etag: str | None,
         title: str,
+        description: str | None,
+        location: str | None,
         start_utc: datetime,
         end_utc: datetime,
         timezone_name: str | None,
         status: str,
         sequence: int,
         organizer: str | None,
+        organizer_common_name: str | None,
         recurrence_id: str | None,
         raw_ics: str | None,
         attendees: list[dict[str, object]],
@@ -42,12 +45,15 @@ class EventsRepository:
         row.href = href
         row.etag = etag
         row.title = title
+        row.description = description
+        row.location = location
         row.start_utc = start_utc
         row.end_utc = end_utc
         row.timezone_name = timezone_name
         row.status = status
         row.sequence = sequence
         row.organizer = organizer
+        row.organizer_common_name = organizer_common_name
         row.raw_ics = raw_ics
         row.deleted = status == "canceled"
         self.session.flush()

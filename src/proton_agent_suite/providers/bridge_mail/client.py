@@ -203,3 +203,38 @@ class BridgeMailProvider:
                 )
             client.delete_messages(uids)
             client.expunge()
+
+    def create_folder(self, name: str) -> FolderInfo:
+        with self._connect() as client:
+            try:
+                client.create_folder(name)
+            except imaplib.IMAP4.error as exc:
+                raise make_error(
+                    ErrorCode.VALIDATION_ERROR,
+                    "Failed to create folder",
+                    {"folder": name, "reason": str(exc)},
+                ) from exc
+        return FolderInfo(ref=stable_ref("fld", name), name=name, kind=MailboxKind.FOLDER)
+
+    def rename_folder(self, old_name: str, new_name: str) -> FolderInfo:
+        with self._connect() as client:
+            try:
+                client.rename_folder(old_name, new_name)
+            except imaplib.IMAP4.error as exc:
+                raise make_error(
+                    ErrorCode.VALIDATION_ERROR,
+                    "Failed to rename folder",
+                    {"from": old_name, "to": new_name, "reason": str(exc)},
+                ) from exc
+        return FolderInfo(ref=stable_ref("fld", new_name), name=new_name, kind=MailboxKind.FOLDER)
+
+    def delete_folder(self, name: str) -> None:
+        with self._connect() as client:
+            try:
+                client.delete_folder(name)
+            except imaplib.IMAP4.error as exc:
+                raise make_error(
+                    ErrorCode.VALIDATION_ERROR,
+                    "Failed to delete folder",
+                    {"folder": name, "reason": str(exc)},
+                ) from exc

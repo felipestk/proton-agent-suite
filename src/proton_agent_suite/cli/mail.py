@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
 
 import typer
 
 from proton_agent_suite.cli.app import emit, fail, get_ctx
 from proton_agent_suite.domain.errors import ProtonAgentError
-from proton_agent_suite.domain.value_objects import MailSendRequest
+from proton_agent_suite.domain.value_objects import MailAttachment, MailSendRequest
 from proton_agent_suite.utils.time import parse_since
 
 app = typer.Typer(help="Mail commands backed by Proton Mail Bridge")
@@ -18,6 +19,20 @@ def _read_body(body_file: Path | None, stdin: bool) -> str:
     if stdin:
         return typer.get_text_stream("stdin").read()
     return ""
+
+
+def _read_attachments(paths: list[Path]) -> list[MailAttachment]:
+    attachments: list[MailAttachment] = []
+    for path in paths:
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        attachments.append(
+            MailAttachment(
+                filename=path.name,
+                content_type=content_type,
+                content=path.read_bytes(),
+            )
+        )
+    return attachments
 
 
 @app.command("health")
@@ -84,9 +99,17 @@ def send(
     stdin: bool = typer.Option(False, "--stdin"),
     cc: list[str] = typer.Option([], "--cc"),
     bcc: list[str] = typer.Option([], "--bcc"),
+    attachment: list[Path] = typer.Option([], "--attachment"),
 ) -> None:
     ctx = get_ctx(context)
-    request = MailSendRequest(to_addresses=to, cc_addresses=cc, bcc_addresses=bcc, subject=subject, body_text=_read_body(body_file, stdin))
+    request = MailSendRequest(
+        to_addresses=to,
+        cc_addresses=cc,
+        bcc_addresses=bcc,
+        subject=subject,
+        body_text=_read_body(body_file, stdin),
+        attachments=_read_attachments(attachment),
+    )
     try:
         emit(ctx, ctx.mail_service.send(request))
     except ProtonAgentError as error:
@@ -132,10 +155,25 @@ def send_draft(context: typer.Context, draft_ref: str) -> None:
 
 
 @app.command("reply")
-def reply(context: typer.Context, message_ref: str, body_file: Path | None = typer.Option(None, "--body-file"), stdin: bool = typer.Option(False, "--stdin")) -> None:
+def reply(
+    context: typer.Context,
+    message_ref: str,
+    body_file: Path | None = typer.Option(None, "--body-file"),
+    stdin: bool = typer.Option(False, "--stdin"),
+    reply_all: bool = typer.Option(False, "--reply-all"),
+    attachment: list[Path] = typer.Option([], "--attachment"),
+) -> None:
     ctx = get_ctx(context)
     try:
-        emit(ctx, ctx.mail_service.reply(message_ref, _read_body(body_file, stdin)))
+        emit(
+            ctx,
+            ctx.mail_service.reply(
+                message_ref,
+                _read_body(body_file, stdin),
+                reply_all=reply_all,
+                attachments=_read_attachments(attachment),
+            ),
+        )
     except ProtonAgentError as error:
         fail(ctx, error)
 
@@ -217,5 +255,54 @@ def remove_label(context: typer.Context, message_ref: str, label_name: str) -> N
     ctx = get_ctx(context)
     try:
         emit(ctx, ctx.mail_service.remove_label(message_ref, label_name))
+    except ProtonAgentError as error:
+        fail(ctx, error)
+
+
+@app.command("create-folder")
+def create_folder(context: typer.Context, name: str = typer.Option(..., "--name")) -> None:
+    ctx = get_ctx(context)
+    try:
+        emit(ctx, ctx.mail_service.create_folder(name))
+    except ProtonAgentError as error:
+        fail(ctx, error)
+
+
+@app.command("rename-folder")
+def rename_folder(
+    context: typer.Context,
+    old_name: str = typer.Option(..., "--from"),
+    new_name: str = typer.Option(..., "--to"),
+) -> None:
+    ctx = get_ctx(context)
+    try:
+        emit(ctx, ctx.mail_service.rename_folder(old_name, new_name))
+    except ProtonAgentError as error:
+        fail(ctx, error)
+
+
+@app.command("delete-folder")
+def delete_folder(context: typer.Context, name: str = typer.Option(..., "--name")) -> None:
+    ctx = get_ctx(context)
+    try:
+        emit(ctx, ctx.mail_service.delete_folder(name))
+    except ProtonAgentError as error:
+        fail(ctx, error)
+
+
+@app.command("sent")
+def sent(context: typer.Context, limit: int = typer.Option(50, "--limit")) -> None:
+    ctx = get_ctx(context)
+    try:
+        emit(ctx, [item.model_dump(mode="json") for item in ctx.mail_service.list_outbound(limit=limit)])
+    except ProtonAgentError as error:
+        fail(ctx, error)
+
+
+@app.command("sent-record")
+def sent_record(context: typer.Context, sent_ref: str) -> None:
+    ctx = get_ctx(context)
+    try:
+        emit(ctx, ctx.mail_service.get_outbound(sent_ref))
     except ProtonAgentError as error:
         fail(ctx, error)

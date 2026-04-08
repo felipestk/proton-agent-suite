@@ -60,3 +60,14 @@ class MailSendRequest(BaseModel):
     body_text: str
     in_reply_to: str | None = None
     references: list[str] = Field(default_factory=list)
+    headers: dict[str, str] = Field(default_factory=dict)
+    attachments: list["MailAttachment"] = Field(default_factory=list)
+
+
+class MailAttachment(BaseModel):
+    filename: str
+    content_type: str = "application/octet-stream"
+    content: bytes
+    disposition: str = "attachment"
+    content_id: str | None = None
+    params: dict[str, str] = Field(default_factory=dict)

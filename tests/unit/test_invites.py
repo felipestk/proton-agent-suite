@@ -5,17 +5,20 @@ from pathlib import Path
 from proton_agent_suite.domain.enums import ErrorCode, InviteStatus
 from proton_agent_suite.domain.services.invite_service import InviteService
 from proton_agent_suite.providers.bridge_mail.parser import MessageParser
-from proton_agent_suite.storage.repositories.attachments import AttachmentsRepository
 from proton_agent_suite.storage.repositories.messages import MessagesRepository
 
 
-class DummyMailProvider:
+class DummyMailService:
     def __init__(self) -> None:
         self.sent: list[object] = []
 
-    def send_message(self, request):
+    def send(self, request, **kwargs):
         self.sent.append(request)
-        return {"status": "sent"}
+        return {"status": "sent", "sent_ref": "out_1", "message_id": "<out_1@example.com>"}
+
+
+class DummyCalendarService:
+    pass
 
 
 def _seed_message(session_factory, fixtures_dir: Path, filename: str, ref_suffix: int) -> str:
@@ -45,8 +48,8 @@ def _seed_message(session_factory, fixtures_dir: Path, filename: str, ref_suffix
 
 
 def test_invite_scan_deduplicates_and_tracks_latest(session_factory, fixtures_dir: Path):
-    provider = DummyMailProvider()
-    service = InviteService(session_factory, provider)
+    provider = DummyMailService()
+    service = InviteService(session_factory, provider, DummyCalendarService())
     _seed_message(session_factory, fixtures_dir, "new_invite.eml", 1)
     _seed_message(session_factory, fixtures_dir, "updated_invite.eml", 2)
 
@@ -60,8 +63,8 @@ def test_invite_scan_deduplicates_and_tracks_latest(session_factory, fixtures_di
 
 
 def test_invite_scan_marks_cancellations(session_factory, fixtures_dir: Path):
-    provider = DummyMailProvider()
-    service = InviteService(session_factory, provider)
+    provider = DummyMailService()
+    service = InviteService(session_factory, provider, DummyCalendarService())
     _seed_message(session_factory, fixtures_dir, "canceled_invite.eml", 3)
 
     service.scan()
@@ -70,8 +73,8 @@ def test_invite_scan_marks_cancellations(session_factory, fixtures_dir: Path):
 
 
 def test_forwarded_invite_requires_force_for_rsvp(session_factory, fixtures_dir: Path):
-    provider = DummyMailProvider()
-    service = InviteService(session_factory, provider)
+    provider = DummyMailService()
+    service = InviteService(session_factory, provider, DummyCalendarService())
     _seed_message(session_factory, fixtures_dir, "forwarded_invite.eml", 4)
     service.scan()
     invite = service.latest()[0]
@@ -85,8 +88,8 @@ def test_forwarded_invite_requires_force_for_rsvp(session_factory, fixtures_dir:
 
 
 def test_safe_rsvp_sends_mail(session_factory, fixtures_dir: Path):
-    provider = DummyMailProvider()
-    service = InviteService(session_factory, provider)
+    provider = DummyMailService()
+    service = InviteService(session_factory, provider, DummyCalendarService())
     _seed_message(session_factory, fixtures_dir, "new_invite.eml", 5)
     service.scan()
     invite = service.latest()[0]

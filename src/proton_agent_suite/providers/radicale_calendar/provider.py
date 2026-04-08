@@ -5,7 +5,7 @@ from urllib.parse import urljoin
 
 from proton_agent_suite.domain.enums import ErrorCode
 from proton_agent_suite.domain.errors import make_error
-from proton_agent_suite.domain.models import CalendarInfo, ConnectorInfo, EventInfo, HealthCheckResult
+from proton_agent_suite.domain.models import CalendarInfo, ConnectorInfo, EventAttendee, EventInfo, HealthCheckResult
 from proton_agent_suite.domain.value_objects import RadicaleSettings
 from proton_agent_suite.providers.radicale_calendar.client import RadicaleHttpClient
 from proton_agent_suite.providers.radicale_calendar.discovery import parse_calendar_query, parse_propfind_calendars
@@ -103,11 +103,40 @@ class RadicaleCalendarProvider:
                 return event
         raise make_error(ErrorCode.EVENT_NOT_FOUND, "Event not found", {"event_ref": event_ref})
 
-    def create_event(self, *, calendar_ref: str, title: str, start: datetime, end: datetime, timezone_name: str | None = None, description: str | None = None, location: str | None = None) -> EventInfo:
+    def create_event(
+        self,
+        *,
+        calendar_ref: str,
+        title: str,
+        start: datetime,
+        end: datetime,
+        timezone_name: str | None = None,
+        description: str | None = None,
+        location: str | None = None,
+        organizer: str | None = None,
+        organizer_common_name: str | None = None,
+        attendees: list[EventAttendee] | None = None,
+        status: str = "CONFIRMED",
+        sequence: int = 0,
+        uid: str | None = None,
+    ) -> EventInfo:
         calendar = self.get_calendar(calendar_ref)
-        uid = stable_ref("uid", title, start.isoformat(), end.isoformat())
+        uid = uid or stable_ref("uid", title, start.isoformat(), end.isoformat(), organizer or "")
         href = f"{calendar.href.rstrip('/')}/{uid}.ics"
-        body = self._codec.build_event(uid=uid, title=title, start=start, end=end, description=description, location=location)
+        body = self._codec.build_event(
+            uid=uid,
+            title=title,
+            start=start,
+            end=end,
+            timezone_name=timezone_name,
+            organizer=organizer,
+            organizer_common_name=organizer_common_name,
+            attendees=attendees,
+            description=description,
+            location=location,
+            status=status,
+            sequence=sequence,
+        )
         self._client.put(urljoin(self._base_url(), href), body)
         return EventInfo(
             ref=stable_ref("evt", uid, ""),
@@ -116,37 +145,71 @@ class RadicaleCalendarProvider:
             href=href,
             etag=None,
             title=title,
+            description=description,
+            location=location,
             start_utc=ensure_utc(start),
             end_utc=ensure_utc(end),
             timezone_name=timezone_name,
+            status=status.lower(),
+            sequence=sequence,
+            organizer=organizer,
+            organizer_common_name=organizer_common_name,
             updated_at=datetime.now(UTC),
-            attendees=[],
+            attendees=attendees or [],
         )
 
-    def update_event(self, event_ref: str, *, title: str | None = None, start: datetime | None = None, end: datetime | None = None, description: str | None = None, location: str | None = None) -> EventInfo:
+    def update_event(
+        self,
+        event_ref: str,
+        *,
+        title: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        timezone_name: str | None = None,
+        description: str | None = None,
+        location: str | None = None,
+        organizer: str | None = None,
+        organizer_common_name: str | None = None,
+        attendees: list[EventAttendee] | None = None,
+        status: str | None = None,
+        sequence: int | None = None,
+    ) -> EventInfo:
         current = self.get_event(event_ref)
         href = current.href
         if href is None:
             raise make_error(ErrorCode.EVENT_NOT_FOUND, "Event href is missing", {"event_ref": event_ref})
+        next_sequence = sequence if sequence is not None else current.sequence + 1
         body = self._codec.build_event(
             uid=current.uid,
             title=title or current.title,
             start=start or current.start_utc,
             end=end or current.end_utc,
-            organizer=current.organizer,
-            description=description,
-            location=location,
-            status=current.status.value.upper(),
-            sequence=current.sequence + 1,
+            timezone_name=timezone_name or current.timezone_name,
+            organizer=organizer or current.organizer,
+            organizer_common_name=organizer_common_name or current.organizer_common_name,
+            attendees=attendees if attendees is not None else current.attendees,
+            description=description if description is not None else current.description,
+            location=location if location is not None else current.location,
+            status=(status or current.status.value).upper(),
+            sequence=next_sequence,
         )
         self._client.put(urljoin(self._base_url(), href), body, etag=current.etag)
-        return current.model_copy(update={
-            "title": title or current.title,
-            "start_utc": ensure_utc(start or current.start_utc),
-            "end_utc": ensure_utc(end or current.end_utc),
-            "sequence": current.sequence + 1,
-            "updated_at": datetime.now(UTC),
-        })
+        return current.model_copy(
+            update={
+                "title": title or current.title,
+                "description": description if description is not None else current.description,
+                "location": location if location is not None else current.location,
+                "start_utc": ensure_utc(start or current.start_utc),
+                "end_utc": ensure_utc(end or current.end_utc),
+                "timezone_name": timezone_name or current.timezone_name,
+                "organizer": organizer or current.organizer,
+                "organizer_common_name": organizer_common_name or current.organizer_common_name,
+                "attendees": attendees if attendees is not None else current.attendees,
+                "status": (status.lower() if status else current.status),
+                "sequence": next_sequence,
+                "updated_at": datetime.now(UTC),
+            }
+        )
 
     def cancel_event(self, event_ref: str) -> EventInfo:
         current = self.get_event(event_ref)
@@ -158,7 +221,12 @@ class RadicaleCalendarProvider:
             title=current.title,
             start=current.start_utc,
             end=current.end_utc,
+            timezone_name=current.timezone_name,
             organizer=current.organizer,
+            organizer_common_name=current.organizer_common_name,
+            attendees=current.attendees,
+            description=current.description,
+            location=current.location,
             status="CANCELLED",
             sequence=current.sequence + 1,
         )

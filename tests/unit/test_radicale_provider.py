@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from proton_agent_suite.domain.models import EventAttendee
 from proton_agent_suite.domain.value_objects import RadicaleSettings
 from proton_agent_suite.providers.radicale_calendar.provider import RadicaleCalendarProvider
 
@@ -49,6 +50,9 @@ class FakeResponse:
 
 
 class FakeClient:
+    def __init__(self):
+        self.last_put_body = None
+
     def propfind(self, url, depth=1, body=None):
         return FakeResponse(DISCOVERY_XML)
 
@@ -56,6 +60,7 @@ class FakeClient:
         return FakeResponse(REPORT_XML)
 
     def put(self, url, body, etag=None):
+        self.last_put_body = body
         return FakeResponse("", status_code=201)
 
     def delete(self, url, etag=None):
@@ -94,3 +99,40 @@ def test_connector_info_uses_public_ics_url():
     provider._client = FakeClient()
     info = provider.get_connector_info()
     assert info.ics_url == "https://calendar.example.com/public/default.ics"
+
+
+def test_create_event_writes_attendee_and_timezone_ics():
+    provider = RadicaleCalendarProvider(
+        RadicaleSettings(
+            base_url="https://calendar.example.com/user/",
+            username="user",
+            password="pass",
+            default_calendar="default",
+        )
+    )
+    fake_client = FakeClient()
+    provider._client = fake_client
+    provider.create_event(
+        calendar_ref="default",
+        title="Demo",
+        start=datetime(2026, 4, 10, 9, 0, tzinfo=UTC),
+        end=datetime(2026, 4, 10, 10, 0, tzinfo=UTC),
+        timezone_name="Europe/Lisbon",
+        organizer="felipe@nurami.ai",
+        organizer_common_name="Felipe",
+        attendees=[
+            EventAttendee(
+                email="felipestark@gmail.com",
+                common_name="Felipe Stark",
+                role="REQ-PARTICIPANT",
+                partstat="NEEDS-ACTION",
+                rsvp=True,
+            )
+        ],
+    )
+
+    assert "ATTENDEE" in fake_client.last_put_body
+    assert "CN=Felipe Stark" in fake_client.last_put_body
+    assert "ROLE=REQ-PARTICIPANT" in fake_client.last_put_body
+    assert "RSVP=TRUE" in fake_client.last_put_body
+    assert "TZID=Europe/Lisbon" in fake_client.last_put_body

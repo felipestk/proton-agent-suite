@@ -87,8 +87,8 @@ def build_context(
         ics_public_base_url=settings.ics_public_base_url,
     )
     mail_service = MailService(session_factory, mail_provider)
-    invite_service = InviteService(session_factory, mail_provider)
     calendar_service = CalendarService(session_factory, calendar_provider)
+    invite_service = InviteService(session_factory, mail_service, calendar_service)
     sync_service = SyncService(session_factory, mail_service, invite_service, calendar_service)
     draft_service = DraftService(session_factory, mail_service)
     return AppContext(

@@ -19,6 +19,10 @@ This repository ships a production-oriented MVP with:
 - Bridge IMAP/SMTP integration paths only
 - explicit Radicale/CalDAV HTTP/WebDAV interactions
 - invite normalization and RSVP safety checks
+- attendee-aware calendar event writes with organizer and ATTENDEE metadata
+- first-class invite create, update, and cancel workflows with shared UID/SEQUENCE across CalDAV + SMTP
+- IMAP-safe folder create, rename, and delete commands
+- outbound send correlation with local `sent_ref` + SMTP `message_id`
 - pytest coverage for unit, integration, and CLI JSON behavior
 
 Known limitations are documented below instead of being hidden.
@@ -145,6 +149,46 @@ Create an event:
 proton-agent calendar create   --calendar default   --title "Demo"   --start "2026-04-10T09:00:00+01:00"   --end "2026-04-10T10:00:00+01:00"
 ```
 
+Create an attendee-aware event without sending invitations:
+
+```bash
+proton-agent calendar create \
+  --calendar default \
+  --title "Demo" \
+  --start "2026-04-10T09:00:00+01:00" \
+  --end "2026-04-10T10:00:00+01:00" \
+  --timezone Europe/Lisbon \
+  --organizer felipe@nurami.ai \
+  --attendee 'felipestark@gmail.com|cn=Felipe Stark|role=REQ-PARTICIPANT|rsvp=true|partstat=NEEDS-ACTION'
+```
+
+Create and send a meeting invite:
+
+```bash
+proton-agent invites create \
+  --calendar default \
+  --title "Demo" \
+  --start "2026-04-10T09:00:00+01:00" \
+  --end "2026-04-10T10:00:00+01:00" \
+  --organizer felipe@nurami.ai \
+  --attendee felipestark@gmail.com
+```
+
+Update or cancel an existing invite by `INVITE_REF` or `UID`:
+
+```bash
+proton-agent invites update UID_OR_REF --start "2026-04-10T11:00:00+01:00" --end "2026-04-10T12:00:00+01:00"
+proton-agent invites cancel UID_OR_REF
+```
+
+Manage folders:
+
+```bash
+proton-agent mail create-folder --name "Clients/Felipe"
+proton-agent mail rename-folder --from "Clients/Felipe" --to "Clients/Felipe-2026"
+proton-agent mail delete-folder --name "Clients/Felipe-2026"
+```
+
 Show Apple Calendar connector info:
 
 ```bash
@@ -207,9 +251,11 @@ Live end-to-end coverage against a real Bridge or Radicale server is intentional
 
 - Proton labels are modeled via Bridge mailbox semantics, not arbitrary remote metadata.
 - RSVP mail generation is conservative and refuses unsafe forwarded/untrusted invites unless `--force` is used.
+- Invite cancel defaults are optimized for Apple Calendar and Gmail compatibility: send `METHOD:CANCEL`, then delete the organizer-side CalDAV object. Use `--keep-local-event` only if you explicitly want a canceled local placeholder.
 - The suite does not automate Proton Calendar.
 - `mail search` is local over synced messages, not remote IMAP server-side search.
 - `calendar show` currently resolves from locally synced events.
+- Outgoing attachments are supported for direct `mail send` and `mail reply`, but draft attachment persistence is still limited.
 
 ## Repository guide
 

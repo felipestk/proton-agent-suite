@@ -38,6 +38,13 @@ Calendar adapter:
 - no browser automation
 - no assumption of a Proton Calendar API
 
+Invite workflow:
+
+- organizer-side workflow is still local-first and CLI-driven
+- CalDAV remains the source of truth for local event state
+- Bridge SMTP delivers iTIP mail with `METHOD:REQUEST`, `METHOD:CANCEL`, or `METHOD:REPLY`
+- one shared UID is reused across CalDAV objects and outbound invite mail
+
 ### Persistence
 
 `storage/` contains:
@@ -47,6 +54,13 @@ Calendar adapter:
 - repository classes per aggregate/table area
 
 SQLite stores normalized data and source linkage, but not secrets.
+
+Important persisted state now includes:
+
+- normalized event rows with organizer, description, location, sequence, timezone, and attendee metadata
+- invite lifecycle records keyed by `UID + organizer + recurrence-id + sequence`
+- latest invite instance linkage
+- outbound mail records with `sent_ref`, `message_id`, recipients, related invite UID, and method
 
 ### CLI
 
@@ -82,11 +96,20 @@ Typer commands are thin wrappers around services. They:
 3. parse VEVENT objects from ICS payloads
 4. persist normalized calendar and event metadata locally
 
+### Organizer invite lifecycle
+
+1. create or update the CalDAV event with organizer and attendee metadata
+2. generate an iCalendar payload from the same normalized event model
+3. send the payload through Bridge SMTP with the correct iTIP method
+4. persist the invite record plus outbound mail correlation in SQLite
+5. on cancel, default to deleting the organizer-side CalDAV object after sending `METHOD:CANCEL`
+
 ## Determinism
 
 The suite is designed for polling and automation:
 
 - stable refs for messages, attachments, invites, calendars, and events
+- stable refs for outbound mail sends
 - strict JSON envelopes
 - typed domain errors
 - no background worker required
@@ -98,3 +121,7 @@ The suite is designed for polling and automation:
 - browser automation of Proton web apps
 - hidden daemons or async background behavior
 - a web UI
+
+## Cancellation design note
+
+For attendee-facing cancellation, the suite does not default to leaving a `STATUS:CANCELLED` VEVENT in Radicale after mail delivery. Real-world Apple Calendar and Gmail behavior is more predictable when the tool sends a standards-compliant `METHOD:CANCEL` update and then removes the local organizer copy from CalDAV. The invite history remains inspectable in SQLite even after the CalDAV object is deleted.
