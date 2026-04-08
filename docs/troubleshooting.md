@@ -150,6 +150,7 @@ Symptoms:
 
 - `SQLITE_UNAVAILABLE` during startup
 - `sqlite3.OperationalError: no such column: events.description`
+- `sqlite3.OperationalError: no such column: invite_instances.calendar_ref`
 - invite create/update/cancel failing immediately after upgrading the code
 
 Checks:
@@ -163,6 +164,7 @@ Current behavior:
 
 - startup now runs explicit, idempotent SQLite migrations
 - existing installs are upgraded in place with missing columns, tables, and indexes
+- organizer invite workflows require the full migration set, including `invite_instances.calendar_ref`, `invite_instances.calendar_href`, and `invite_instances.calendar_etag`
 - migration failures are fatal by design and are not silently skipped
 
 ## Sent message correlation looks incomplete

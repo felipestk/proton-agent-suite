@@ -255,10 +255,210 @@ def _create_legacy_schema(db_path: Path) -> None:
         connection.close()
 
 
+def _create_partially_upgraded_schema(db_path: Path) -> None:
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE outbound_mail (
+                id TEXT PRIMARY KEY,
+                message_id_header TEXT,
+                subject TEXT,
+                to_addresses TEXT NOT NULL DEFAULT '',
+                cc_addresses TEXT NOT NULL DEFAULT '',
+                bcc_addresses TEXT NOT NULL DEFAULT '',
+                source_message_ref TEXT,
+                related_invite_uid TEXT,
+                invite_sequence INTEGER,
+                method TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                response_json JSON,
+                created_at TEXT,
+                sent_at TEXT,
+                updated_at TEXT
+            );
+
+            CREATE TABLE invite_records (
+                id TEXT PRIMARY KEY,
+                uid TEXT NOT NULL,
+                organizer TEXT,
+                organizer_common_name TEXT,
+                recurrence_id TEXT,
+                sequence INTEGER NOT NULL DEFAULT 0,
+                method TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                summary TEXT,
+                description TEXT,
+                location TEXT,
+                start_utc TEXT,
+                end_utc TEXT,
+                timezone_name TEXT,
+                attendees JSON,
+                calendar_ref TEXT,
+                calendar_href TEXT,
+                calendar_etag TEXT,
+                source_message_ref TEXT,
+                outbound_mail_ref TEXT,
+                outbound_message_id TEXT,
+                warning_flags JSON,
+                reason_codes JSON,
+                latest BOOLEAN NOT NULL DEFAULT 0,
+                raw_ics TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            );
+
+            CREATE TABLE invite_instances (
+                id TEXT PRIMARY KEY,
+                uid TEXT NOT NULL,
+                organizer TEXT,
+                recurrence_id TEXT,
+                latest_record_id TEXT NOT NULL,
+                current_status TEXT NOT NULL DEFAULT 'pending',
+                start_utc TEXT,
+                end_utc TEXT,
+                updated_at TEXT
+            );
+
+            CREATE TABLE events (
+                id TEXT PRIMARY KEY,
+                calendar_id TEXT,
+                uid TEXT NOT NULL,
+                href TEXT,
+                etag TEXT,
+                title TEXT NOT NULL,
+                description TEXT,
+                location TEXT,
+                start_utc TEXT NOT NULL,
+                end_utc TEXT NOT NULL,
+                timezone_name TEXT,
+                status TEXT NOT NULL DEFAULT 'confirmed',
+                sequence INTEGER NOT NULL DEFAULT 0,
+                organizer TEXT,
+                organizer_common_name TEXT,
+                recurrence_id TEXT,
+                raw_ics TEXT,
+                deleted BOOLEAN NOT NULL DEFAULT 0,
+                updated_at TEXT
+            );
+
+            CREATE TABLE event_attendees (
+                id TEXT PRIMARY KEY,
+                event_id TEXT NOT NULL,
+                email TEXT NOT NULL,
+                common_name TEXT,
+                partstat TEXT,
+                role TEXT,
+                rsvp BOOLEAN
+            );
+
+            CREATE TABLE calendars (
+                id TEXT PRIMARY KEY,
+                provider TEXT NOT NULL DEFAULT 'radicale',
+                name TEXT NOT NULL,
+                href TEXT NOT NULL,
+                url TEXT,
+                etag TEXT,
+                color TEXT,
+                description TEXT,
+                is_default BOOLEAN NOT NULL DEFAULT 0,
+                created_at TEXT,
+                updated_at TEXT
+            );
+
+            CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+        connection.executemany(
+            "INSERT INTO schema_migrations(version, name) VALUES (?, ?)",
+            [
+                (1, "bootstrap_schema"),
+                (2, "additive_columns"),
+                (3, "backfill_invite_state"),
+                (4, "indexes"),
+            ],
+        )
+        connection.execute(
+            """
+            INSERT INTO invite_records(
+                id, uid, organizer, organizer_common_name, recurrence_id, sequence, method, status, summary,
+                description, location, start_utc, end_utc, timezone_name, attendees, calendar_ref, calendar_href,
+                calendar_etag, source_message_ref, outbound_mail_ref, outbound_message_id, warning_flags, reason_codes,
+                latest, raw_ics, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy_invite",
+                "invite-1",
+                "owner@example.com",
+                "Owner",
+                None,
+                2,
+                "REQUEST",
+                "pending",
+                "Legacy invite",
+                "Planning session",
+                "Lisbon",
+                "2026-04-10T09:00:00Z",
+                "2026-04-10T10:00:00Z",
+                "Europe/Lisbon",
+                '[{"email":"guest@example.com","common_name":"Guest","rsvp":true}]',
+                "default",
+                "/events/invite-1.ics",
+                '"etag-legacy"',
+                None,
+                None,
+                None,
+                "[]",
+                "[]",
+                1,
+                "BEGIN:VCALENDAR\nEND:VCALENDAR",
+                "2026-04-08T12:00:00Z",
+                "2026-04-08T12:00:00Z",
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO invite_instances(
+                id, uid, organizer, recurrence_id, latest_record_id, current_status, start_utc, end_utc, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                stable_ref("ivi", "invite-1", "owner@example.com", ""),
+                "invite-1",
+                "owner@example.com",
+                None,
+                "legacy_invite",
+                "pending",
+                "2026-04-10T09:00:00Z",
+                "2026-04-10T10:00:00Z",
+                "2026-04-08T12:00:00Z",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def _table_columns(db_path: Path, table_name: str) -> set[str]:
     connection = sqlite3.connect(db_path)
     try:
         rows = connection.execute(f'PRAGMA table_info("{table_name}")').fetchall()
+        return {str(row[1]) for row in rows}
+    finally:
+        connection.close()
+
+
+def _index_names(db_path: Path, table_name: str) -> set[str]:
+    connection = sqlite3.connect(db_path)
+    try:
+        rows = connection.execute(f'PRAGMA index_list("{table_name}")').fetchall()
         return {str(row[1]) for row in rows}
     finally:
         connection.close()
@@ -278,9 +478,59 @@ def test_migrate_upgrades_existing_sqlite_schema(tmp_path: Path):
     assert _table_columns(db_path, "event_attendees")
 
 
+def test_migrate_repairs_existing_invite_instances_schema_in_place(tmp_path: Path):
+    db_path = tmp_path / "legacy.sqlite3"
+    _create_partially_upgraded_schema(db_path)
+
+    engine = create_sqlite_engine(db_path)
+    create_session_factory(engine)
+
+    invite_instance_columns = _table_columns(db_path, "invite_instances")
+    invite_instance_indexes = _index_names(db_path, "invite_instances")
+
+    assert {
+        "uid",
+        "organizer",
+        "recurrence_id",
+        "latest_record_id",
+        "current_status",
+        "start_utc",
+        "end_utc",
+        "calendar_ref",
+        "calendar_href",
+        "calendar_etag",
+        "updated_at",
+    }.issubset(invite_instance_columns)
+    assert {"ix_invite_instances_calendar_ref", "uq_invite_instances_lookup"}.issubset(invite_instance_indexes)
+
+    connection = sqlite3.connect(db_path)
+    try:
+        row = connection.execute(
+            """
+            SELECT uid, organizer, recurrence_id, latest_record_id, current_status, start_utc, end_utc,
+                   calendar_ref, calendar_href, calendar_etag
+            FROM invite_instances
+            """
+        ).fetchone()
+        assert row == (
+            "invite-1",
+            "owner@example.com",
+            None,
+            "legacy_invite",
+            "pending",
+            "2026-04-10T09:00:00Z",
+            "2026-04-10T10:00:00Z",
+            "default",
+            "/events/invite-1.ics",
+            '"etag-legacy"',
+        )
+    finally:
+        connection.close()
+
+
 def test_migrate_is_idempotent_for_existing_sqlite_schema(tmp_path: Path):
     db_path = tmp_path / "legacy.sqlite3"
-    _create_legacy_schema(db_path)
+    _create_partially_upgraded_schema(db_path)
 
     engine = create_sqlite_engine(db_path)
     create_session_factory(engine)
@@ -289,7 +539,9 @@ def test_migrate_is_idempotent_for_existing_sqlite_schema(tmp_path: Path):
     connection = sqlite3.connect(db_path)
     try:
         versions = connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()
-        assert [row[0] for row in versions] == [1, 2, 3, 4]
+        invite_instances = connection.execute("SELECT COUNT(*) FROM invite_instances").fetchone()
+        assert [row[0] for row in versions] == [1, 2, 3, 4, 5]
+        assert invite_instances == (1,)
     finally:
         connection.close()
 
@@ -318,7 +570,7 @@ def test_fresh_db_creation_runs_full_schema_bootstrap(tmp_path: Path):
 
 def test_invite_workflows_and_sent_record_survive_legacy_db_upgrade(tmp_path: Path):
     db_path = tmp_path / "legacy.sqlite3"
-    _create_legacy_schema(db_path)
+    _create_partially_upgraded_schema(db_path)
 
     engine = create_sqlite_engine(db_path)
     session_factory = create_session_factory(engine)
@@ -347,5 +599,8 @@ def test_invite_workflows_and_sent_record_survive_legacy_db_upgrade(tmp_path: Pa
     assert created["invite"]["location"] == "Lisbon"
     assert updated["invite"]["location"] == "Porto"
     assert canceled["invite"]["status"] == "canceled"
+    assert created["invite"]["calendar_ref"] == "default"
+    assert updated["invite"]["calendar_href"]
+    assert canceled["invite"]["calendar_etag"]
     assert sent_record.related_invite_uid == created["invite"]["uid"]
     assert sent_record.method == "CANCEL"

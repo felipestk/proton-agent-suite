@@ -124,7 +124,7 @@ proton-agent sync invites
 proton-agent sync calendar --days 30
 ```
 
-Existing installs are upgraded in place on startup. The CLI now runs explicit SQLite schema migrations before opening a session, so an existing DB such as `/var/lib/proton-agent/proton-agent.sqlite3` is updated with newly required columns, tables, and indexes instead of relying on `create_all()` alone.
+Existing installs are upgraded in place on startup. The CLI now runs explicit SQLite schema migrations before opening a session, so an existing DB such as `/var/lib/proton-agent/proton-agent.sqlite3` is updated with newly required columns, tables, and indexes instead of relying on `create_all()` alone. That migration set includes the organizer-invite state tables: `events`, `invite_records`, and `invite_instances` are repaired in place so `invites create`, `invites update`, and `invites cancel` continue to work on upgraded SQLite databases.
 
 ## Example commands
 

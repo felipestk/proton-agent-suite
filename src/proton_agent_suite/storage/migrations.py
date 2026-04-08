@@ -153,6 +153,29 @@ def _migrate_additive_columns(connection: Connection) -> None:
         )
 
 
+def _ensure_invite_instances_columns(connection: Connection) -> None:
+    for column_name, ddl, backfill_sql in (
+        ("uid", "VARCHAR(255)", None),
+        ("organizer", "VARCHAR(320)", None),
+        ("recurrence_id", "VARCHAR(255)", None),
+        ("latest_record_id", "VARCHAR(32)", None),
+        ("current_status", "VARCHAR(20) NOT NULL DEFAULT 'pending'", "UPDATE invite_instances SET current_status = 'pending' WHERE current_status IS NULL"),
+        ("start_utc", "DATETIME", None),
+        ("end_utc", "DATETIME", None),
+        ("calendar_ref", "VARCHAR(32)", None),
+        ("calendar_href", "VARCHAR(2048)", None),
+        ("calendar_etag", "VARCHAR(255)", None),
+        ("updated_at", "DATETIME", None),
+    ):
+        _add_column_if_missing(
+            connection,
+            table_name="invite_instances",
+            column_name=column_name,
+            ddl=ddl,
+            backfill_sql=backfill_sql,
+        )
+
+
 def _backfill_invite_state(connection: Connection) -> None:
     if not _table_exists(connection, "invite_records"):
         return
@@ -183,6 +206,7 @@ def _backfill_invite_state(connection: Connection) -> None:
     if not _table_exists(connection, "invite_instances"):
         return
 
+    _ensure_invite_instances_columns(connection)
     connection.execute(text("DELETE FROM invite_instances"))
     latest_rows = connection.execute(
         text(
@@ -256,11 +280,13 @@ def _migrate_indexes(connection: Connection) -> None:
         ("ix_outbound_mail_method", "outbound_mail", ["method"], False),
         ("ix_events_recurrence_id", "events", ["recurrence_id"], False),
         ("ix_invite_records_latest", "invite_records", ["latest"], False),
+        ("ix_invite_records_calendar_ref", "invite_records", ["calendar_ref"], False),
         ("ix_invite_records_source_message_ref", "invite_records", ["source_message_ref"], False),
         ("ix_invite_records_outbound_mail_ref", "invite_records", ["outbound_mail_ref"], False),
         ("ix_invite_instances_uid", "invite_instances", ["uid"], False),
         ("ix_invite_instances_organizer", "invite_instances", ["organizer"], False),
         ("ix_invite_instances_recurrence_id", "invite_instances", ["recurrence_id"], False),
+        ("ix_invite_instances_calendar_ref", "invite_instances", ["calendar_ref"], False),
         ("ix_event_attendees_event_id", "event_attendees", ["event_id"], False),
         ("ix_event_attendees_email", "event_attendees", ["email"], False),
         ("uq_invite_instances_lookup", "invite_instances", ["uid", "organizer", "recurrence_id"], True),
@@ -277,11 +303,20 @@ def _migrate_indexes(connection: Connection) -> None:
             )
 
 
+def _repair_invite_instances_schema(connection: Connection) -> None:
+    if not _table_exists(connection, "invite_instances"):
+        return
+    _ensure_invite_instances_columns(connection)
+    _backfill_invite_state(connection)
+    _migrate_indexes(connection)
+
+
 MIGRATIONS: tuple[MigrationStep, ...] = (
     MigrationStep(version=1, name="bootstrap_schema", apply=_bootstrap_schema),
     MigrationStep(version=2, name="additive_columns", apply=_migrate_additive_columns),
     MigrationStep(version=3, name="backfill_invite_state", apply=_backfill_invite_state),
     MigrationStep(version=4, name="indexes", apply=_migrate_indexes),
+    MigrationStep(version=5, name="repair_invite_instances_schema", apply=_repair_invite_instances_schema),
 )
 
 

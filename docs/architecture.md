@@ -70,6 +70,7 @@ Migration behavior:
 - missing columns are added with targeted `ALTER TABLE ... ADD COLUMN ...`
 - missing tables come from the SQLAlchemy metadata
 - invite latest-state rows are backfilled into `invite_instances`
+- organizer invite workflows rely on the full `invite_instances` schema, including `calendar_ref`, `calendar_href`, and `calendar_etag`, so startup repairs those columns and related indexes on existing installs before backfilling
 - indexes are created idempotently with `IF NOT EXISTS`
 
 ### CLI
